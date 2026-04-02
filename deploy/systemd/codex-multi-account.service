@@ -1,0 +1,17 @@
+# 这个文件用于把 codex-multi-account 作为本机 systemd 服务常驻运行。
+
+[Unit]
+Description=codex-multi-account local service
+After=network.target
+
+[Service]
+Type=simple
+User=djy
+WorkingDirectory=/home/djy/codex-multi-account
+Environment=CMA_DATA_DIR=/home/djy/codex-multi-account/data
+ExecStart=/bin/bash -lc 'source /home/djy/miniforge3/etc/profile.d/conda.sh && conda activate codex-multi-account && cd /home/djy/codex-multi-account/backend && PYTHONPATH=/home/djy/codex-multi-account/backend/src python -m uvicorn codex_multi_account.app:create_app --factory --host 127.0.0.1 --port 9001'
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,22 @@
+# 本地虚拟环境和工具目录
+.venv/
+.codex
+
+# Python 缓存和测试产物
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.coverage
+
+# 前端依赖和构建产物
+web/node_modules/
+web/dist/
+
+# 本地运行数据和账号快照
+data/
+backend/data/
+
+# 操作系统附带文件
+*.Zone.Identifier
+*:Zone.Identifier
+.DS_Store
