@@ -87,6 +87,10 @@ PYTHONPATH=/home/djy/codex-multi-account/backend/src python3 -m uvicorn codex_mu
 
 仓库里已提供 `systemd` 安装脚本和登录启动脚本，便于在 WSL 里常驻运行。
 
+`systemd` 安装脚本会把当前 shell 的代理环境一起写进服务环境，避免额度接口在 systemd 下变成全部未知。
+
+建议直接在普通 shell 里运行安装脚本，让它自己调用 `sudo` 完成 systemd 安装，这样代理环境不会被 `sudo` 丢掉。
+
 ## 测试方法和常用命令
 
 后端测试：
@@ -156,6 +160,7 @@ pnpm build
 - 真实验证过首页点击卡片里的 `切 Codex` 后，当前账号会切到目标邮箱，再切回时能恢复
 - 真实验证过卡片里不再显示 `OpenClaw: ... / Codex: ...` 这种快照 ID 文本
 - 已提供统一启动脚本、systemd 安装脚本和 WSL 登录启动脚本
+- systemd 安装脚本会同步写入代理环境，避免“手动能检测、systemd 全未知”
 
 ## 待办事项
 

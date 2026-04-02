@@ -76,8 +76,10 @@ python3 -m pytest backend/tests -q
 
 ```bash
 cd /home/djy/codex-multi-account
-sudo bash scripts/install-systemd-service.sh
+bash scripts/install-systemd-service.sh
 ```
+
+这个安装脚本会把你当前 shell 里的代理环境一起写进 service 使用的环境文件，避免 systemd 服务因为拿不到 `HTTP_PROXY/HTTPS_PROXY` 而探测不到额度。
 
 如果只想先看安装目标而不真正执行：
 

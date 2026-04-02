@@ -1,3 +1,3 @@
-当前：这轮开始补 WSL 常驻启动能力，已经加了统一启动脚本、systemd 安装脚本和登录启动脚本，并把 systemd 文件改成调用统一启动入口。
-停点：仓库远程仍是 `https://github.com/tutouguai1933/codex-multi-account`。当前沙箱里的 PID 1 不是 systemd，所以这里只能验证脚本语法和 dry-run，不能直接在这个环境里跑真实的 systemctl。
-决定：WSL 常驻运行同时保留 `systemd` 和登录启动脚本两条路径，但两者共用 `scripts/run-codex-multi-account.sh`，避免维护两套不同命令。
+当前：这轮定位了 systemd 下额度全未知的根因，是服务环境里没有代理变量。现在 systemd service 会加载项目内环境文件，安装脚本也会把当前 shell 里的代理环境一起写进去。
+停点：修复需要重新执行一次 `bash scripts/install-systemd-service.sh`，让环境文件写入并重启服务。仓库远程仍是 `https://github.com/tutouguai1933/codex-multi-account`。
+决定：systemd 常驻运行不再只依赖最小环境，而是显式加载代理环境文件，避免 WSL 里“手动能检测、systemd 全未知”的差异。

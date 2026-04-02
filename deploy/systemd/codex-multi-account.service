@@ -9,6 +9,7 @@ Type=simple
 User=djy
 WorkingDirectory=/home/djy/codex-multi-account
 Environment=CMA_DATA_DIR=/home/djy/codex-multi-account/data
+EnvironmentFile=-/home/djy/codex-multi-account/deploy/systemd/codex-multi-account.env
 ExecStart=/bin/bash /home/djy/codex-multi-account/scripts/run-codex-multi-account.sh
 Restart=always
 RestartSec=5

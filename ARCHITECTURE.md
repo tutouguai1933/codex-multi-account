@@ -35,7 +35,7 @@
 - `scripts/run-codex-multi-account.sh`
   - 统一封装服务启动命令，供 systemd 和手动启动共用
 - `scripts/install-systemd-service.sh`
-  - 负责把 service 文件安装到 systemd 并启用
+  - 负责把 service 文件安装到 systemd、写入代理环境文件并启用
 - `scripts/start-on-wsl-login.sh`
   - 负责在没有 systemd 时按登录流程自动拉起本地服务
 - `web/src/App.tsx`
