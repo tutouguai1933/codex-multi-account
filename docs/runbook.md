@@ -72,20 +72,50 @@ python3 -m pytest backend/tests -q
 
 ## 6. systemd 常驻运行
 
-仓库里已经提供了一个示例服务文件：
-
-`/home/djy/codex-multi-account/deploy/systemd/codex-multi-account.service`
-
-使用前请先确认里面的路径和用户名仍然符合当前机器，然后执行：
+如果你的 WSL 已经打开了 `systemd`，可以直接用仓库里的安装脚本：
 
 ```bash
-sudo cp /home/djy/codex-multi-account/deploy/systemd/codex-multi-account.service /etc/systemd/system/codex-multi-account.service
-sudo systemctl daemon-reload
-sudo systemctl enable --now codex-multi-account
+cd /home/djy/codex-multi-account
+sudo bash scripts/install-systemd-service.sh
 ```
+
+如果只想先看安装目标而不真正执行：
+
+```bash
+cd /home/djy/codex-multi-account
+bash scripts/install-systemd-service.sh --dry-run
+```
+
+仓库里也保留了原始 service 文件：
+
+`/home/djy/codex-multi-account/deploy/systemd/codex-multi-account.service`
 
 查看状态：
 
 ```bash
 systemctl status codex-multi-account --no-pager
+```
+
+## 7. 没开 systemd 时的启动脚本
+
+如果你的 WSL 没开 `systemd`，可以用登录启动脚本：
+
+```bash
+cd /home/djy/codex-multi-account
+bash scripts/start-on-wsl-login.sh
+```
+
+它会先检查 `9001` 是否已经在监听，只有没启动时才会后台拉起服务。
+
+如果你想把它放进 WSL 登录流程，可以把这一行加入 `~/.bashrc` 或 `~/.profile`：
+
+```bash
+bash /home/djy/codex-multi-account/scripts/start-on-wsl-login.sh
+```
+
+如果只想查看脚本会使用哪些参数：
+
+```bash
+cd /home/djy/codex-multi-account
+bash scripts/start-on-wsl-login.sh --dry-run
 ```

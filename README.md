@@ -85,7 +85,7 @@ PYTHONPATH=/home/djy/codex-multi-account/backend/src python3 -m uvicorn codex_mu
 - 开发模式：后端 + `pnpm dev`
 - 单服务模式：前端 `build` 后只启动后端
 
-仓库里已提供 `systemd` 服务文件示例，便于后续常驻运行。
+仓库里已提供 `systemd` 安装脚本和登录启动脚本，便于在 WSL 里常驻运行。
 
 ## 测试方法和常用命令
 
@@ -155,6 +155,7 @@ pnpm build
 - 真实验证过首页当前账号会按真实运行态显示
 - 真实验证过首页点击卡片里的 `切 Codex` 后，当前账号会切到目标邮箱，再切回时能恢复
 - 真实验证过卡片里不再显示 `OpenClaw: ... / Codex: ...` 这种快照 ID 文本
+- 已提供统一启动脚本、systemd 安装脚本和 WSL 登录启动脚本
 
 ## 待办事项
 

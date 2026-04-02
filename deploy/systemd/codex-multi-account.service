@@ -9,7 +9,7 @@ Type=simple
 User=djy
 WorkingDirectory=/home/djy/codex-multi-account
 Environment=CMA_DATA_DIR=/home/djy/codex-multi-account/data
-ExecStart=/bin/bash -lc 'source /home/djy/miniforge3/etc/profile.d/conda.sh && conda activate codex-multi-account && cd /home/djy/codex-multi-account/backend && PYTHONPATH=/home/djy/codex-multi-account/backend/src python -m uvicorn codex_multi_account.app:create_app --factory --host 127.0.0.1 --port 9001'
+ExecStart=/bin/bash /home/djy/codex-multi-account/scripts/run-codex-multi-account.sh
 Restart=always
 RestartSec=5
 

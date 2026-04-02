@@ -32,6 +32,12 @@
   - 负责把账号模型转成前端可展示的安全结构，过滤掉 token 等敏感字段
 - `backend/src/codex_multi_account/app.py`
   - 组装整个 FastAPI 应用，并在存在前端构建产物时托管静态页面
+- `scripts/run-codex-multi-account.sh`
+  - 统一封装服务启动命令，供 systemd 和手动启动共用
+- `scripts/install-systemd-service.sh`
+  - 负责把 service 文件安装到 systemd 并启用
+- `scripts/start-on-wsl-login.sh`
+  - 负责在没有 systemd 时按登录流程自动拉起本地服务
 - `web/src/App.tsx`
   - 管理页面切换、侧边导航和顶栏状态，并接收总览页回传的最新概览数据
 - `web/src/pages/`
@@ -54,6 +60,7 @@
 7. `login_session.py` 启动登录命令，并在命令退出后调用 `account_pool` 自动收编
 8. 账户页提交的回调地址会走 `routes_accounts.py -> login_session.py -> PTY 登录进程`
 9. 登录状态会落到 `data/login_sessions.json`，服务重启后重新加载
+10. `deploy/systemd/codex-multi-account.service` 通过 `scripts/run-codex-multi-account.sh` 启动服务
 
 ## 关键设计决定
 
@@ -80,4 +87,5 @@
 - “一键检测所有额度”不再阻塞前端等待所有账号都探测完成，而是先返回“已开始”，再由页面稍后自动刷新，避免首页长时间卡住
 - 项目统一固定使用 `9001` 作为主服务端口，前端开发代理也直接指向 `9001`
 - 单服务模式下由后端直接托管 `web/dist`，更适合常驻运行
+- WSL 常驻运行同时支持 `systemd` 和登录启动脚本两条路径，但两者共用同一个启动入口，避免维护两套不同命令
 - 登录流程先做成“页面可见状态 + 授权链接 + 页面提交授权信息 + 本机 CLI 执行”，在不破坏现有 CLI 链路的前提下逐步收口
