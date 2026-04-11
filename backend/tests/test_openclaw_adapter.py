@@ -94,3 +94,36 @@ def test_openclaw_switch_preserves_usage_metadata_and_order(tmp_path) -> None:
         "openai-codex:alpha@example.com",
     ]
 
+
+def test_openclaw_adapter_can_activate_api_snapshot(tmp_path) -> None:
+    """第三方 API 快照切换时应改写 openclaw.json 的 provider 和主模型。"""
+
+    openclaw_home = tmp_path / ".openclaw"
+    state_dir = tmp_path / "data"
+    adapter = OpenClawAdapter(openclaw_home=openclaw_home, state_dir=state_dir, primary_agent="main")
+    write_json(openclaw_home / "openclaw.json", {"models": {"providers": {}}, "agents": {"defaults": {"model": {}, "models": {}}}})
+    adapter.write_api_snapshot(
+        "api-main",
+        {
+            "provider_name": "OpenAI",
+            "base_url": "https://www.ananapi.com/",
+            "wire_api": "responses",
+            "requires_openai_auth": True,
+            "api_key": "sk-demo",
+            "model": "gpt-5.4",
+            "review_model": "gpt-5.4",
+            "model_reasoning_effort": "xhigh",
+            "model_context_window": 1_000_000,
+            "model_auto_compact_token_limit": 900_000,
+        },
+    )
+
+    snapshot = adapter.activate_snapshot("api-main")
+    config = json.loads((openclaw_home / "openclaw.json").read_text(encoding="utf-8"))
+    provider_keys = list(config["models"]["providers"].keys())
+
+    assert snapshot.account_kind == "api"
+    assert len(provider_keys) == 1
+    assert provider_keys[0].startswith("cma-api-")
+    assert config["models"]["providers"][provider_keys[0]]["baseUrl"] == "https://www.ananapi.com"
+    assert config["agents"]["defaults"]["model"]["primary"] == f"{provider_keys[0]}/gpt-5.4"

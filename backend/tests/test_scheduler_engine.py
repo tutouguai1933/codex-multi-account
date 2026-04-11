@@ -428,4 +428,93 @@ def test_scheduler_force_rebalance_picks_better_openclaw_candidate(tmp_path) -> 
 
     assert result.assignments["openclaw"] == "acct_6"
     assert ("acct_6", "openclaw") in switch_service.calls
+
+
+def test_scheduler_keeps_manual_locked_api_target(tmp_path) -> None:
+    """当前目标被手动锁到 API 账号时，自动调度不应把它切走。"""
+
+    api_account = make_account("acct_api", openclaw=True, codex=True, five=0.0, weekly=0.0)
+    api_account.kind = "api"
+    api_account.assignment.codex = True
+    api_account.assignment.codex_locked = True
+    oauth_account = make_account("acct_oauth", openclaw=True, codex=True, five=10.0, weekly=10.0)
+    pool = FakeAccountPool([api_account, oauth_account])
+    sync_runtime_from_assignments(pool)
+    switch_service = FakeSwitchService(pool)
+    settings_store = JsonStore(tmp_path / "settings.json")
+    settings_store.write(SchedulerSettings().model_dump(mode="json"))
+    engine = SchedulerEngine(
+        settings_store=settings_store,
+        account_pool=pool,  # type: ignore[arg-type]
+        switch_service=switch_service,  # type: ignore[arg-type]
+        probe_service=FakeProbeService(pool),  # type: ignore[arg-type]
+        event_log=EventLog(tmp_path / "events.jsonl"),
+        openclaw_adapter=FakeOpenClawAdapter(),  # type: ignore[arg-type]
+    )
+
+    result = engine.run_once()
+
+    assert result.assignments["codex"] == "acct_api"
+    assert result.actions["codex"] == "manual-locked"
+    assert ("acct_oauth", "codex") not in switch_service.calls
     assert result.forced_immediate is True
+
+
+def test_scheduler_skips_api_account_when_picking_candidates(tmp_path) -> None:
+    """第三方 API 账号不应被自动调度主动选中。"""
+
+    api_account = make_account("acct_api", openclaw=True, codex=True, five=1.0, weekly=1.0)
+    api_account.kind = "api"
+    normal_account = make_account("acct_2", openclaw=True, codex=True, five=10.0, weekly=10.0)
+    pool = FakeAccountPool([api_account, normal_account])
+    settings_store = JsonStore(tmp_path / "settings.json")
+    settings_store.write(SchedulerSettings().model_dump(mode="json"))
+    switcher = FakeSwitchService(pool)
+    engine = SchedulerEngine(
+        settings_store=settings_store,
+        account_pool=pool,  # type: ignore[arg-type]
+        switch_service=switcher,  # type: ignore[arg-type]
+        probe_service=FakeProbeService(pool),  # type: ignore[arg-type]
+        event_log=EventLog(tmp_path / "events.jsonl"),
+        openclaw_adapter=FakeOpenClawAdapter(),  # type: ignore[arg-type]
+    )
+
+    result = engine.run_once()
+
+    assert result.assignments["openclaw"] == "acct_2"
+    assert result.assignments["codex"] == "acct_2"
+
+
+def test_scheduler_keeps_manual_locked_api_target(tmp_path) -> None:
+    """某个目标已手动切入 API 账号后，自动调度不应再碰它。"""
+
+    locked_api = make_account("acct_api", openclaw=True, codex=True, five=5.0, weekly=5.0)
+    locked_api.kind = "api"
+    locked_api.assignment.codex = True
+    locked_api.assignment.codex_locked = True
+    normal_account = make_account(
+        "acct_2",
+        openclaw=True,
+        codex=True,
+        five=10.0,
+        weekly=10.0,
+        runtime_account_id="acct-normal",
+        user_id="user-normal",
+    )
+    pool = FakeAccountPool([locked_api, normal_account])
+    sync_runtime_from_assignments(pool)
+    settings_store = JsonStore(tmp_path / "settings.json")
+    settings_store.write(SchedulerSettings().model_dump(mode="json"))
+    engine = SchedulerEngine(
+        settings_store=settings_store,
+        account_pool=pool,  # type: ignore[arg-type]
+        switch_service=FakeSwitchService(pool),  # type: ignore[arg-type]
+        probe_service=FakeProbeService(pool),  # type: ignore[arg-type]
+        event_log=EventLog(tmp_path / "events.jsonl"),
+        openclaw_adapter=FakeOpenClawAdapter(),  # type: ignore[arg-type]
+    )
+
+    result = engine.run_once()
+
+    assert result.actions["codex"] == "manual-locked"
+    assert result.assignments["codex"] == "acct_api"

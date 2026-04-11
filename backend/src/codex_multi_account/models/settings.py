@@ -23,3 +23,29 @@ class SchedulerSettings(BaseModel):
     prefer_separation: bool = True
     thresholds: SchedulerThresholds = SchedulerThresholds()
 
+
+class CodexQuickSettings(BaseModel):
+    """描述配置页里常用的 Codex 基础字段。"""
+
+    openai_base_url: str | None = None
+    model: str | None = None
+    review_model: str | None = None
+    model_reasoning_effort: str | None = None
+    fast_mode_enabled: bool | None = None
+    model_context_window: int | None = None
+    model_auto_compact_token_limit: int | None = None
+
+
+class CodexRuntimeFiles(BaseModel):
+    """描述 Codex 配置页要展示的原文和快捷字段。"""
+
+    config_text: str
+    auth_text: str
+    quick_settings: CodexQuickSettings
+
+
+class CodexRuntimeSaveRequest(BaseModel):
+    """描述原文保存请求。"""
+
+    config_text: str
+    auth_text: str

@@ -137,3 +137,33 @@ def test_probe_account_uses_other_binding_when_first_binding_is_stale(tmp_path) 
     assert result.quota.five_hour_used_pct == 35.0
     assert result.quota.weekly_used_pct == 40.0
 
+
+def test_probe_account_for_api_key_only_checks_connectivity(tmp_path) -> None:
+    """第三方 API 账号不探额度，只看连通性。"""
+
+    account = AccountRecord(
+        id="acct_api",
+        label="ananapi",
+        kind="api",
+        api_profile={
+            "provider_name": "OpenAI",
+            "base_url": "https://www.ananapi.com/",
+            "wire_api": "responses",
+            "requires_openai_auth": True,
+            "api_key": "sk-demo",
+            "model": "gpt-5.4",
+        },
+        status=AccountStatus(health="quota-unknown", reason="not-probed"),
+    )
+    pool = FakeAccountPool(account, {})
+    service = ProbeService(build_settings(tmp_path), pool)  # type: ignore[arg-type]
+    service._probe_api_profile = lambda current: {  # type: ignore[method-assign]
+        "health": "healthy",
+        "reason": "api-connect-ok",
+    }
+
+    result = service.probe_account("acct_api")
+
+    assert result.status.health == "healthy"
+    assert result.status.reason == "api-connect-ok"
+    assert result.quota.five_hour_used_pct is None

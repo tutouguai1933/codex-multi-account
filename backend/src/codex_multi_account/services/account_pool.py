@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import re
 import time
 from hashlib import md5
@@ -9,8 +10,9 @@ from typing import Iterable
 
 from codex_multi_account.adapters.codex_cli import CodexCliAdapter
 from codex_multi_account.adapters.openclaw import OpenClawAdapter, decode_jwt_payload
-from codex_multi_account.models.account import AccountRecord, RuntimeSnapshot
+from codex_multi_account.models.account import AccountRecord, ApiProfile, RuntimeSnapshot
 from codex_multi_account.storage.json_store import JsonStore
+from codex_multi_account.utils.api_profiles import ensure_api_profile_fingerprint, normalize_base_url
 
 
 class AccountPoolService:
@@ -79,6 +81,10 @@ class AccountPoolService:
     def _find_existing(self, accounts: list[AccountRecord], runtime: RuntimeSnapshot) -> AccountRecord | None:
         """按真实账号特征找现有记录，避免同邮箱不同 workspace 误合并。"""
 
+        if runtime.account_kind == "api" and runtime.api_key_fingerprint:
+            for item in accounts:
+                if item.kind == "api" and item.api_profile and item.api_profile.fingerprint == runtime.api_key_fingerprint:
+                    return item
         for item in accounts:
             metadata = item.metadata.get("identity") if isinstance(item.metadata, dict) else None
             if not isinstance(metadata, dict):
@@ -109,6 +115,14 @@ class AccountPoolService:
             identity["plan_type"] = runtime.plan_type
         if runtime.auth_mode:
             identity["auth_mode"] = runtime.auth_mode
+        if runtime.account_kind:
+            identity["account_kind"] = runtime.account_kind
+        if runtime.provider_name:
+            identity["provider_name"] = runtime.provider_name
+        if runtime.base_url:
+            identity["base_url"] = runtime.base_url
+        if runtime.api_key_fingerprint:
+            identity["api_fingerprint"] = runtime.api_key_fingerprint
 
     def _merge_runtime(
         self,
@@ -125,9 +139,11 @@ class AccountPoolService:
             existing = AccountRecord(
                 id=self._next_account_id(accounts),
                 label=label or self._default_label(runtime, snapshot_id),
+                kind=runtime.account_kind,
                 email=runtime.active_email,
             )
             accounts.append(existing)
+        existing.kind = runtime.account_kind or existing.kind
         if runtime.active_email and not existing.email:
             existing.email = runtime.active_email
         self._apply_identity_metadata(existing, runtime)
@@ -140,6 +156,63 @@ class AccountPoolService:
         existing.status.health = "healthy" if runtime.has_binding else "missing-binding"
         existing.status.reason = "imported-current-runtime"
         existing.timestamps.last_detected_at = int(time.time())
+        self.save_accounts(accounts)
+        return existing
+
+    def _merge_api_account(
+        self,
+        profile: ApiProfile,
+        label: str | None,
+        codex_snapshot_id: str,
+        openclaw_snapshot_id: str,
+    ) -> AccountRecord:
+        """把第三方 API 账号写进统一账号池。"""
+
+        profile = ensure_api_profile_fingerprint(profile)
+        accounts = self.list_accounts()
+        existing = next(
+            (
+                item
+                for item in accounts
+                if item.kind == "api"
+                and item.api_profile is not None
+                and item.api_profile.fingerprint == profile.fingerprint
+            ),
+            None,
+        )
+        if existing is None:
+            existing = AccountRecord(
+                id=self._next_account_id(accounts),
+                label=label or normalize_base_url(profile.base_url),
+                kind="api",
+                email=None,
+                api_profile=profile,
+            )
+            accounts.append(existing)
+        existing.kind = "api"
+        existing.api_profile = profile
+        existing.email = None
+        existing.bindings.codex.snapshot_id = codex_snapshot_id
+        existing.bindings.codex.available = True
+        existing.bindings.openclaw.snapshot_id = openclaw_snapshot_id
+        existing.bindings.openclaw.available = True
+        existing.status.health = "quota-unknown"
+        existing.status.reason = "api-account-added"
+        self._apply_identity_metadata(
+            existing,
+            RuntimeSnapshot(
+                target="codex",
+                account_kind="api",
+                active_account_id=profile.fingerprint,
+                auth_mode="apikey",
+                provider_name=profile.provider_name,
+                base_url=profile.base_url,
+                api_key_fingerprint=profile.fingerprint,
+                active_model=profile.model,
+                has_binding=True,
+                raw_profile={},
+            ),
+        )
         self.save_accounts(accounts)
         return existing
 
@@ -218,6 +291,58 @@ class AccountPoolService:
                 account.quota.reset_at_weekly = quota.get("weekly_reset_time") if isinstance(quota.get("weekly_reset_time"), int) else account.quota.reset_at_weekly
             imported_accounts.append(self.update_account(account))
         return imported_accounts
+
+    def import_token_payload(self, payload: str, label: str | None = None) -> list[AccountRecord]:
+        """把粘贴进来的 token JSON 或账号 JSON 导入账号池。"""
+
+        parsed = json.loads(payload)
+        if isinstance(parsed, list):
+            return self.import_codex_batch(
+                [item for item in parsed if isinstance(item, dict)]
+            )
+        if not isinstance(parsed, dict):
+            raise ValueError("导入内容必须是 JSON 对象或数组")
+        if "tokens" in parsed:
+            codex_snapshot_id = label or self._safe_snapshot_id(f"token-{int(time.time())}-codex")
+            runtime = self.codex.write_snapshot_payload(codex_snapshot_id, parsed)
+            openclaw_snapshot_id = self._safe_snapshot_id(f"{codex_snapshot_id}-openclaw")
+            self.openclaw.write_snapshot_profile(
+                openclaw_snapshot_id,
+                {
+                    "type": "oauth",
+                    "provider": "openai-codex",
+                    "access": ((parsed.get("tokens") or {}).get("access_token")),
+                    "refresh": ((parsed.get("tokens") or {}).get("refresh_token")),
+                    "accountId": parsed.get("account_id"),
+                    "expires": decode_jwt_payload(str(((parsed.get("tokens") or {}).get("access_token")) or "")).get("exp"),
+                },
+            )
+            account = self._merge_runtime("codex", codex_snapshot_id, runtime, label)
+            account.bindings.openclaw.snapshot_id = openclaw_snapshot_id
+            account.bindings.openclaw.available = True
+            return [self.update_account(account)]
+        raise ValueError("暂不支持这种 token JSON，请改用 API Key 或 cockpit 导出格式")
+
+    def create_api_account(self, payload: dict[str, object]) -> AccountRecord:
+        """创建一条第三方 API 账号记录。"""
+
+        label = str(payload.get("label") or "").strip() or None
+        profile = ensure_api_profile_fingerprint(
+            ApiProfile.model_validate(
+                {
+                    "provider_name": "openai",
+                    "base_url": payload.get("base_url"),
+                    "api_key": payload.get("api_key"),
+                }
+            )
+        )
+        codex_snapshot_id = self._safe_snapshot_id(f"{profile.fingerprint}-codex")
+        openclaw_snapshot_id = self._safe_snapshot_id(f"{profile.fingerprint}-openclaw")
+        self.codex.write_api_snapshot(codex_snapshot_id, profile)
+        self.openclaw.write_api_snapshot(openclaw_snapshot_id, profile)
+        return self.update_account(
+            self._merge_api_account(profile, label, codex_snapshot_id, openclaw_snapshot_id)
+        )
 
     def _build_export_from_account(self, account: AccountRecord) -> dict[str, object] | None:
         """把统一账号池条目转回 cockpit-tools 兼容结构。"""
@@ -353,12 +478,19 @@ class AccountPoolService:
     def assign_target(self, target: str, account_id: str | None) -> None:
         """把某个目标分配给指定账号。"""
 
+        self.assign_target_with_lock(target, account_id, manual_lock=False)
+
+    def assign_target_with_lock(self, target: str, account_id: str | None, manual_lock: bool) -> None:
+        """把目标分配给指定账号，并同步该目标的手动锁定状态。"""
+
         accounts = self.list_accounts()
         for item in accounts:
             if target == "openclaw":
                 item.assignment.openclaw = item.id == account_id
+                item.assignment.openclaw_locked = item.id == account_id and manual_lock
             elif target == "codex":
                 item.assignment.codex = item.id == account_id
+                item.assignment.codex_locked = item.id == account_id and manual_lock
             if item.id == account_id:
                 item.timestamps.last_assigned_at = int(time.time())
         self.save_accounts(accounts)

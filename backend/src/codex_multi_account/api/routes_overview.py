@@ -19,6 +19,13 @@ def build_overview_router(
 
     router = APIRouter(tags=["overview"])
 
+    def display_name(account, runtime_email: str | None) -> str | None:
+        """给总览面板返回可展示的当前账号名称。"""
+
+        if account is None:
+            return runtime_email
+        return account.email or account.label or runtime_email
+
     @router.get("/api/overview")
     def overview() -> dict[str, object]:
         accounts = account_pool.list_accounts()
@@ -56,8 +63,8 @@ def build_overview_router(
                 "totalAccounts": len(accounts),
                 "openclawAccountId": current_openclaw.id if current_openclaw else None,
                 "codexAccountId": current_codex.id if current_codex else None,
-                "openclawAccountEmail": current_openclaw.email if current_openclaw else openclaw_runtime.active_email,
-                "codexAccountEmail": current_codex.email if current_codex else codex_runtime.active_email,
+                "openclawAccountEmail": display_name(current_openclaw, openclaw_runtime.active_email),
+                "codexAccountEmail": display_name(current_codex, codex_runtime.active_email),
                 "allocationMode": allocation_mode,
                 "separated": bool(
                     current_openclaw and current_codex and current_openclaw.id != current_codex.id

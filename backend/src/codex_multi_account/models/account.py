@@ -2,19 +2,50 @@
 
 from __future__ import annotations
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
+
+
+class ApiProfile(BaseModel):
+    """描述第三方 OpenAI 兼容接口账号的配置。"""
+
+    provider_name: str = "openai"
+    base_url: str
+    wire_api: str = "responses"
+    requires_openai_auth: bool = True
+    api_key: str
+    model: str = "gpt-5.4"
+    review_model: str | None = None
+    model_reasoning_effort: str | None = None
+    disable_response_storage: bool = True
+    network_access: str = "enabled"
+    windows_wsl_setup_acknowledged: bool = True
+    model_context_window: int | None = None
+    model_auto_compact_token_limit: int | None = None
+    fingerprint: str | None = None
+
+    @field_validator("base_url")
+    @classmethod
+    def normalize_base_url(cls, value: str) -> str:
+        """统一去掉基础地址末尾的 `/`。"""
+
+        return value.strip().rstrip("/")
 
 
 class RuntimeSnapshot(BaseModel):
     """描述某个目标当前活跃登录态的标准化结果。"""
 
     target: str
+    account_kind: str = "oauth"
     active_email: str | None = None
     active_account_id: str | None = None
     user_id: str | None = None
     plan_type: str | None = None
     expires: int | None = None
     auth_mode: str | None = None
+    provider_name: str | None = None
+    base_url: str | None = None
+    api_key_fingerprint: str | None = None
+    active_model: str | None = None
     access_token: str | None = None
     refresh_token: str | None = None
     raw_profile: dict[str, object] = Field(default_factory=dict)
@@ -66,6 +97,8 @@ class AccountAssignments(BaseModel):
 
     openclaw: bool = False
     codex: bool = False
+    openclaw_locked: bool = False
+    codex_locked: bool = False
 
 
 class AccountTimestamps(BaseModel):
@@ -80,8 +113,10 @@ class AccountRecord(BaseModel):
 
     id: str
     label: str
+    kind: str = "oauth"
     email: str | None = None
     tags: list[str] = Field(default_factory=list)
+    api_profile: ApiProfile | None = None
     bindings: AccountBindings = Field(default_factory=AccountBindings)
     status: AccountStatus = Field(default_factory=AccountStatus)
     quota: AccountQuota = Field(default_factory=AccountQuota)

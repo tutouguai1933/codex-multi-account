@@ -38,6 +38,20 @@ class CodexBatchImportRequest(BaseModel):
     items: list[dict[str, object]]
 
 
+class TokenImportRequest(BaseModel):
+    """描述粘贴 token JSON 的导入请求。"""
+
+    value: str
+    label: str | None = None
+
+
+class ApiAccountCreateRequest(BaseModel):
+    """描述第三方 API 账号的创建请求。"""
+
+    base_url: str
+    api_key: str
+
+
 def build_accounts_router(
     account_pool: AccountPoolService,
     probe_service: ProbeService,
@@ -69,6 +83,18 @@ def build_accounts_router(
             "importedCount": len(accounts),
             "accounts": [public_account_dict(item) for item in accounts],
         }
+
+    @router.post("/import/token")
+    def import_token(payload: TokenImportRequest) -> dict[str, object]:
+        accounts = account_pool.import_token_payload(payload.value, payload.label)
+        return {
+            "importedCount": len(accounts),
+            "accounts": [public_account_dict(item) for item in accounts],
+        }
+
+    @router.post("/import/api-account")
+    def import_api_account(payload: ApiAccountCreateRequest) -> dict[str, object]:
+        return public_account_dict(account_pool.create_api_account(payload.model_dump(mode="json")))
 
     @router.get("/export/codex-batch")
     def export_codex_batch() -> dict[str, object]:

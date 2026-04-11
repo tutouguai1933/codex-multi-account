@@ -99,7 +99,7 @@ def create_app(settings: AppSettings | None = None) -> FastAPI:
     app = FastAPI(title="codex-multi-account", lifespan=lifespan)
     app.include_router(build_overview_router(account_pool, event_log, scheduler_runner))
     app.include_router(build_accounts_router(account_pool, probe_service, switch_service, login_manager))
-    app.include_router(build_settings_router(settings_store))
+    app.include_router(build_settings_router(settings_store, codex))
     app.include_router(build_events_router(event_log))
     app.include_router(build_scheduler_router(scheduler, scheduler_runner))
     _register_frontend_routes(app, app_settings.project_root)

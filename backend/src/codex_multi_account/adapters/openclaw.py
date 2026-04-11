@@ -7,12 +7,15 @@ import json
 import os
 import tempfile
 import time
+from hashlib import md5
 from pathlib import Path
 from typing import Any
 
-from codex_multi_account.models.account import RuntimeSnapshot, SnapshotBinding
+from codex_multi_account.models.account import ApiProfile, RuntimeSnapshot, SnapshotBinding
+from codex_multi_account.utils.api_profiles import ensure_api_profile_fingerprint, normalize_base_url
 
 CANONICAL_PROFILE = "openai-codex:default"
+DEFAULT_OAUTH_MODEL = "openai-codex/gpt-5.4"
 
 
 def atomic_write_json(path: Path, data: dict[str, Any], mode: int | None = None) -> None:
@@ -60,6 +63,7 @@ class OpenClawAdapter:
         self.state_dir = state_dir
         self.primary_agent = primary_agent
         self.snapshot_dir = state_dir / "snapshots" / "openclaw"
+        self.backup_dir = state_dir / "runtime_backups"
 
     @property
     def config_path(self) -> Path:
@@ -106,9 +110,68 @@ class OpenClawAdapter:
             return {}
         return json.loads(self.config_path.read_text(encoding="utf-8"))
 
+    @property
+    def config_backup_path(self) -> Path:
+        """返回 OpenClaw 配置备份路径。"""
+
+        return self.backup_dir / "openclaw.json"
+
+    def _backup_config_if_needed(self) -> None:
+        """首次进入 API 模式前备份当前 openclaw.json。"""
+
+        if self.config_backup_path.exists() or not self.config_path.exists():
+            return
+        self.backup_dir.mkdir(parents=True, exist_ok=True)
+        self.config_backup_path.write_text(self.config_path.read_text(encoding="utf-8"), encoding="utf-8")
+
+    def restore_default_config(self) -> None:
+        """退出 API 模式时恢复原始 openclaw.json。"""
+
+        if self.config_backup_path.exists():
+            self.config_path.write_text(
+                self.config_backup_path.read_text(encoding="utf-8"),
+                encoding="utf-8",
+            )
+            self.config_backup_path.unlink()
+            return
+        config = self.read_openclaw_config()
+        providers = ((config.get("models") or {}).get("providers") or {})
+        if isinstance(providers, dict):
+            for key in list(providers.keys()):
+                if isinstance(key, str) and key.startswith("cma-api-"):
+                    providers.pop(key, None)
+        agents = config.setdefault("agents", {})
+        defaults = agents.setdefault("defaults", {})
+        model_cfg = defaults.setdefault("model", {})
+        model_cfg["primary"] = DEFAULT_OAUTH_MODEL
+        default_models = defaults.setdefault("models", {})
+        if isinstance(default_models, dict):
+            default_models.setdefault(DEFAULT_OAUTH_MODEL, {})
+        atomic_write_json(self.config_path, config)
+
     def _identity_from_profile(self, profile: dict[str, Any]) -> RuntimeSnapshot:
         """把 profile 解析成统一快照。"""
 
+        if profile.get("type") == "api":
+            provider_name = str(profile.get("provider_name") or "openai")
+            base_url = str(profile.get("base_url") or "")
+            api_key = str(profile.get("api_key") or "")
+            model = str(profile.get("model") or "")
+            fingerprint = str(profile.get("fingerprint") or "")
+            if not fingerprint and api_key:
+                fingerprint = f"api_{md5('|'.join([provider_name.lower(), normalize_base_url(base_url).lower(), api_key, model]).encode('utf-8')).hexdigest()[:16]}"
+            return RuntimeSnapshot(
+                target="openclaw",
+                account_kind="api",
+                active_account_id=fingerprint or None,
+                auth_mode="apikey",
+                provider_name=provider_name,
+                base_url=base_url,
+                api_key_fingerprint=fingerprint or None,
+                active_model=model or None,
+                raw_profile=profile,
+                has_binding=bool(api_key and base_url and model),
+            )
         payload = decode_jwt_payload(str(profile.get("access") or ""))
         openai_profile = payload.get("https://api.openai.com/profile") or {}
         auth = payload.get("https://api.openai.com/auth") or {}
@@ -128,6 +191,25 @@ class OpenClawAdapter:
     def read_runtime_snapshot(self) -> RuntimeSnapshot:
         """读取当前主 agent 的活跃 OpenAI Codex 登录态。"""
 
+        config = self.read_openclaw_config()
+        defaults = ((config.get("agents") or {}).get("defaults") or {}) if isinstance(config, dict) else {}
+        model_cfg = defaults.get("model") or {}
+        primary_model = model_cfg.get("primary") if isinstance(model_cfg, dict) else None
+        if isinstance(primary_model, str) and "/" in primary_model:
+            provider_key, _, model_id = primary_model.partition("/")
+            provider = ((config.get("models") or {}).get("providers") or {}).get(provider_key)
+            if isinstance(provider, dict) and provider.get("apiKey"):
+                profile = {
+                    "type": "api",
+                    "provider_name": str(provider.get("providerName") or "openai"),
+                    "base_url": str(provider.get("baseUrl") or ""),
+                    "wire_api": str(provider.get("api") or "openai-responses"),
+                    "api_key": str(provider.get("apiKey") or ""),
+                    "model": model_id,
+                    "review_model": model_id,
+                    "fingerprint": str(provider.get("fingerprint") or ""),
+                }
+                return self._identity_from_profile(profile)
         store = self.load_auth_store(self.primary_agent)
         profiles = store.get("profiles") or {}
         profile = profiles.get(CANONICAL_PROFILE)
@@ -167,6 +249,30 @@ class OpenClawAdapter:
         atomic_write_json(path, profile, mode=0o600)
         return self._identity_from_profile(profile)
 
+    def write_api_snapshot(self, snapshot_id: str, profile: ApiProfile | dict[str, Any]) -> RuntimeSnapshot:
+        """把第三方 API 配置保存成 OpenClaw 可切换快照。"""
+
+        if not isinstance(profile, ApiProfile):
+            profile = ApiProfile.model_validate(profile)
+        profile = ensure_api_profile_fingerprint(profile)
+        return self.write_snapshot_profile(
+            snapshot_id,
+            {
+                "type": "api",
+                "provider_name": profile.provider_name,
+                "base_url": normalize_base_url(profile.base_url),
+                "wire_api": profile.wire_api,
+                "requires_openai_auth": profile.requires_openai_auth,
+                "api_key": profile.api_key,
+                "model": profile.model,
+                "review_model": profile.review_model or profile.model,
+                "model_reasoning_effort": profile.model_reasoning_effort,
+                "model_context_window": profile.model_context_window,
+                "model_auto_compact_token_limit": profile.model_auto_compact_token_limit,
+                "fingerprint": profile.fingerprint,
+            },
+        )
+
     def delete_snapshot(self, snapshot_id: str) -> None:
         """删除本地快照，不影响当前运行时。"""
 
@@ -186,6 +292,9 @@ class OpenClawAdapter:
 
         path = self.snapshot_dir / f"{snapshot_id}.json"
         profile = json.loads(path.read_text(encoding="utf-8"))
+        if profile.get("type") == "api":
+            return self._activate_api_profile(profile)
+        self.restore_default_config()
         runtime = self._identity_from_profile(profile)
         email_profile = self._email_profile_id(runtime.active_email)
         for agent_id in self.configured_agents():
@@ -212,6 +321,68 @@ class OpenClawAdapter:
             *([email_profile] if email_profile != CANONICAL_PROFILE else []),
             *[item for item in existing if item not in {CANONICAL_PROFILE, email_profile}],
         ]
+        agents = config.setdefault("agents", {})
+        defaults = agents.setdefault("defaults", {})
+        model_cfg = defaults.setdefault("model", {})
+        model_cfg["primary"] = DEFAULT_OAUTH_MODEL
+        default_models = defaults.setdefault("models", {})
+        if isinstance(default_models, dict):
+            default_models.setdefault(DEFAULT_OAUTH_MODEL, {})
+        atomic_write_json(self.config_path, config)
+        return runtime
+
+    def _activate_api_profile(self, profile: dict[str, Any]) -> RuntimeSnapshot:
+        """把第三方 API 账号写回 OpenClaw 主配置。"""
+
+        runtime = self._identity_from_profile(profile)
+        self._backup_config_if_needed()
+        config = self.read_openclaw_config()
+        models = config.setdefault("models", {})
+        providers = models.setdefault("providers", {})
+        provider_key = f"cma-api-{runtime.api_key_fingerprint or runtime.active_account_id or 'default'}"
+        model_id = str(profile.get("model") or "gpt-5.4")
+        review_model = str(profile.get("review_model") or model_id)
+        base_url = normalize_base_url(str(profile.get("base_url") or ""))
+        api_name = str(profile.get("provider_name") or "openai")
+        provider_payload = {
+            "name": api_name,
+            "providerName": api_name,
+            "baseUrl": base_url,
+            "apiKey": str(profile.get("api_key") or ""),
+            "api": "openai-responses"
+            if str(profile.get("wire_api") or "responses") == "responses"
+            else "openai-completions",
+            "fingerprint": runtime.api_key_fingerprint,
+            "models": [],
+        }
+        for current_model in [model_id, review_model]:
+            if not current_model:
+                continue
+            provider_payload["models"].append(
+                {
+                    "id": current_model,
+                    "name": current_model,
+                    "reasoning": True,
+                    "input": ["text", "image"],
+                    "cost": {
+                        "input": 0,
+                        "output": 0,
+                        "cacheRead": 0,
+                        "cacheWrite": 0,
+                    },
+                    "contextWindow": int(profile.get("model_context_window") or 1_000_000),
+                    "maxTokens": int(profile.get("model_auto_compact_token_limit") or 128_000),
+                }
+            )
+        providers[provider_key] = provider_payload
+        agents = config.setdefault("agents", {})
+        defaults = agents.setdefault("defaults", {})
+        model_cfg = defaults.setdefault("model", {})
+        model_cfg["primary"] = f"{provider_key}/{model_id}"
+        default_models = defaults.setdefault("models", {})
+        if isinstance(default_models, dict):
+            default_models[f"{provider_key}/{model_id}"] = {}
+            default_models[f"{provider_key}/{review_model}"] = {}
         atomic_write_json(self.config_path, config)
         return runtime
 

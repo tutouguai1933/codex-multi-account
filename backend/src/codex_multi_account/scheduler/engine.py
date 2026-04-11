@@ -54,6 +54,8 @@ class SchedulerEngine:
     def _is_account_usable(self, account: AccountRecord) -> bool:
         """判断账号是否总体可用。"""
 
+        if account.kind == "api":
+            return False
         return account.status.health not in {
             "auth-invalid",
             "plan-unavailable",
@@ -141,6 +143,8 @@ class SchedulerEngine:
         """为 OpenClaw 选择本轮应使用的账号。"""
 
         events: list[EventRecord] = []
+        if current_openclaw and current_openclaw.assignment.openclaw_locked:
+            return current_openclaw, "manual-locked", events
         avoid_account_id = (
             current_codex.id
             if (
@@ -205,6 +209,8 @@ class SchedulerEngine:
     ) -> tuple[AccountRecord | None, str]:
         """为 Codex 选择本轮应使用的账号。"""
 
+        if current_codex and current_codex.assignment.codex_locked:
+            return current_codex, "manual-locked"
         avoid_account_id = openclaw_choice.id if (settings.prefer_separation and openclaw_choice) else None
         if force_rebalance:
             candidate = self._pick_for_target("codex", accounts, avoid_account_id=avoid_account_id)
@@ -272,6 +278,36 @@ class SchedulerEngine:
                 forced_immediate=force_rebalance,
                 events=events,
             )
+        if openclaw_reason == "manual-locked" and current_openclaw is not None:
+            codex_choice, codex_reason = self._select_codex_choice(
+                accounts,
+                current_codex,
+                current_openclaw,
+                settings,
+                force_rebalance=force_rebalance,
+            )
+            event = self._event(
+                "info",
+                "manual-locked",
+                "OpenClaw 当前处于手动锁定状态，本轮自动调度不会改动它。",
+                target="openclaw",
+                account_id=current_openclaw.id,
+            )
+            return SchedulerResult(
+                assignments={
+                    "openclaw": current_openclaw.id,
+                    "codex": codex_choice.id if codex_choice else None,
+                },
+                actions={
+                    "openclaw": "manual-locked",
+                    "codex": "keep"
+                    if current_codex and codex_choice and current_codex.id == codex_choice.id
+                    else ("none" if codex_choice is None else ("manual-locked" if codex_reason == "manual-locked" else "switched")),
+                },
+                reason="manual-locked",
+                forced_immediate=force_rebalance,
+                events=[event],
+            )
 
         if openclaw_choice is None:
             codex_choice, codex_reason = self._select_codex_choice(
@@ -316,6 +352,8 @@ class SchedulerEngine:
             codex_action = "switched"
         elif codex_choice is None:
             codex_action = "none"
+        elif reason == "manual-locked":
+            codex_action = "manual-locked"
 
         event = self._event(
             "info",

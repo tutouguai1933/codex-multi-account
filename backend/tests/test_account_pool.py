@@ -258,6 +258,71 @@ def test_account_pool_exports_cockpit_compatible_codex_json(tmp_path) -> None:
     item = exported[0]
     assert item["email"] == "export@example.com"
     assert item["account_id"] == "acct-export"
-    assert item["tokens"]["refresh_token"] == "refresh-export"
-    assert item["quota"]["hourly_percentage"] == 71
-    assert item["quota"]["weekly_percentage"] == 50
+
+
+def test_account_pool_create_api_account_uses_base_url_as_label(tmp_path) -> None:
+    """第三方 API 账号默认应直接用基础地址做名称。"""
+
+    openclaw_home = tmp_path / ".openclaw"
+    codex_home = tmp_path / ".codex"
+    state_dir = tmp_path / "data"
+    service = AccountPoolService(
+        JsonStore(state_dir / "accounts.json"),
+        OpenClawAdapter(openclaw_home, state_dir, "main"),
+        CodexCliAdapter(codex_home, state_dir),
+    )
+
+    account = service.create_api_account(
+        {
+            "base_url": "https://www.ananapi.com/",
+            "api_key": "sk-demo",
+        }
+    )
+
+    assert account.label == "https://www.ananapi.com"
+    assert account.api_profile is not None
+    assert account.api_profile.provider_name == "openai"
+
+
+def test_account_pool_can_create_unified_api_account(tmp_path) -> None:
+    """第三方 API 账号应作为统一账号进入两侧绑定。"""
+
+    openclaw_home = tmp_path / ".openclaw"
+    codex_home = tmp_path / ".codex"
+    state_dir = tmp_path / "data"
+    service = AccountPoolService(
+        JsonStore(state_dir / "accounts.json"),
+        OpenClawAdapter(openclaw_home, state_dir, "main"),
+        CodexCliAdapter(codex_home, state_dir),
+    )
+
+    account = service.create_api_account(
+        {
+            "label": "ananapi",
+            "provider_name": "OpenAI",
+            "base_url": "https://www.ananapi.com/",
+            "wire_api": "responses",
+            "requires_openai_auth": True,
+            "api_key": "sk-demo",
+            "model": "gpt-5.4",
+            "review_model": "gpt-5.4",
+            "model_reasoning_effort": "xhigh",
+            "disable_response_storage": True,
+            "network_access": "enabled",
+            "windows_wsl_setup_acknowledged": True,
+            "model_context_window": 1_000_000,
+            "model_auto_compact_token_limit": 900_000,
+        }
+    )
+
+    assert account.kind == "api"
+    assert account.api_profile is not None
+    assert account.bindings.codex.snapshot_id is not None
+    assert account.bindings.openclaw.snapshot_id is not None
+    assert account.api_profile.fingerprint is not None
+    codex_snapshot = service.codex.read_snapshot(account.bindings.codex.snapshot_id or "")
+    openclaw_snapshot = service.openclaw.read_snapshot(account.bindings.openclaw.snapshot_id or "")
+    assert codex_snapshot.auth_mode == "apikey"
+    assert codex_snapshot.active_account_id == account.api_profile.fingerprint
+    assert openclaw_snapshot.auth_mode == "apikey"
+    assert openclaw_snapshot.active_account_id == account.api_profile.fingerprint

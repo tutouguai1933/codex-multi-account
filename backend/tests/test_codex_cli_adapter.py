@@ -137,3 +137,38 @@ def test_codex_adapter_normalizes_last_refresh_to_rfc3339_string(tmp_path) -> No
     assert isinstance(current["last_refresh"], str)
     assert current["last_refresh"].endswith("Z")
     assert datetime.fromisoformat(current["last_refresh"].replace("Z", "+00:00"))
+
+
+def test_codex_adapter_can_activate_api_key_snapshot(tmp_path) -> None:
+    """API Key 快照切换时应只补 openai_base_url，不改 provider 身份。"""
+
+    codex_home = tmp_path / ".codex"
+    state_dir = tmp_path / "data"
+    codex_home.mkdir(parents=True)
+    (codex_home / "config.toml").write_text(
+        'model = "gpt-5.4"\nmodel_reasoning_effort = "high"\n',
+        encoding="utf-8",
+    )
+    adapter = CodexCliAdapter(codex_home=codex_home, state_dir=state_dir)
+
+    adapter.write_api_snapshot(
+        "api-main",
+        {
+            "base_url": "https://www.ananapi.com/",
+            "api_key": "sk-demo",
+        },
+    )
+    snapshot = adapter.activate_snapshot("api-main")
+    current_auth = json.loads((codex_home / "auth.json").read_text(encoding="utf-8"))
+    current_config = (codex_home / "config.toml").read_text(encoding="utf-8")
+
+    assert snapshot.account_kind == "api"
+    assert snapshot.provider_name == "openai"
+    assert current_auth["auth_mode"] == "apikey"
+    assert current_auth["OPENAI_API_KEY"] == "sk-demo"
+    assert "tokens" not in current_auth
+    assert 'openai_base_url = "https://www.ananapi.com"' in current_config
+    assert 'model = "gpt-5.4"' in current_config
+    assert 'model_reasoning_effort = "high"' in current_config
+    assert 'model_provider =' not in current_config
+    assert "[model_providers" not in current_config

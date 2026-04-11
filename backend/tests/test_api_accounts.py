@@ -9,6 +9,7 @@ from fastapi.testclient import TestClient
 
 from codex_multi_account.app import create_app
 from codex_multi_account.api.routes_accounts import (
+    ApiAccountCreateRequest,
     CodexBatchImportRequest,
     ImportRequest,
     LoginInputRequest,
@@ -316,3 +317,118 @@ def test_account_routes_do_not_expose_token_metadata(tmp_path) -> None:
 
     assert account["metadata"]["codex_export"]["account_name"] == "Safe Workspace"
     assert "tokens" not in account["metadata"]["codex_export"]
+
+
+def test_create_api_account_route_returns_public_profile(tmp_path) -> None:
+    """第三方 API 账号创建接口应返回脱敏后的公开配置。"""
+
+    app = create_app(build_settings(tmp_path))
+
+    account = route_endpoint(app, "/api/accounts/import/api-account", "POST")(
+        payload=type(
+            "Payload",
+            (),
+            {
+                "model_dump": lambda self, mode="json": {
+                    "base_url": "https://www.ananapi.com/",
+                    "api_key": "sk-demo",
+                }
+            },
+        )()
+    )
+
+    assert account["kind"] == "api"
+    assert account["label"] == "https://www.ananapi.com"
+    assert account["api_profile"]["base_url"] == "https://www.ananapi.com"
+    assert account["api_profile"]["provider_name"] == "openai"
+    assert account["api_profile"]["has_api_key"] is True
+    assert "api_key" not in account["api_profile"]
+
+
+def test_import_token_route_accepts_auth_json_payload(tmp_path) -> None:
+    """Token 导入接口应接受单个 auth.json JSON。"""
+
+    app = create_app(build_settings(tmp_path))
+    payload = {
+        "auth_mode": "chatgpt",
+        "account_id": "acct-token",
+        "tokens": {
+            "id_token": make_jwt("token@example.com", "acct-token", "user-token"),
+            "access_token": make_jwt("token@example.com", "acct-token", "user-token"),
+            "refresh_token": "refresh-token",
+            "account_id": "acct-token",
+        },
+    }
+
+    result = route_endpoint(app, "/api/accounts/import/token", "POST")(
+        payload=type("Payload", (), {"value": json.dumps(payload), "label": "token-main"})()
+    )
+
+    assert result["importedCount"] == 1
+    assert result["accounts"][0]["email"] == "token@example.com"
+
+
+def test_token_import_route_accepts_auth_json_payload(tmp_path) -> None:
+    """粘贴 auth.json 时，应生成统一账号并补齐 Codex 绑定。"""
+
+    app = create_app(build_settings(tmp_path))
+    auth_payload = {
+        "auth_mode": "chatgpt",
+        "user_id": "user-token",
+        "plan_type": "team",
+        "account_id": "acct-token",
+        "tokens": {
+            "id_token": make_jwt("token@example.com", "acct-token", "user-token"),
+            "access_token": make_jwt("token@example.com", "acct-token", "user-token"),
+            "refresh_token": "refresh-token",
+        },
+    }
+
+    imported = route_endpoint(app, "/api/accounts/import/token", "POST")(
+        payload=type("Payload", (), {"value": json.dumps(auth_payload), "label": "token-main"})()
+    )
+
+    assert imported["importedCount"] == 1
+    assert imported["accounts"][0]["kind"] == "oauth"
+    assert imported["accounts"][0]["bindings"]["codex"]["snapshot_id"] is not None
+
+
+def test_api_account_route_creates_unified_api_account(tmp_path) -> None:
+    """第三方 API 创建接口应返回一条统一账号。"""
+
+    app = create_app(build_settings(tmp_path))
+
+    account = route_endpoint(app, "/api/accounts/import/api-account", "POST")(
+        payload=ApiAccountCreateRequest(
+            base_url="https://www.ananapi.com/",
+            api_key="sk-demo",
+        )
+    )
+
+    assert account["kind"] == "api"
+    assert account["bindings"]["openclaw"]["snapshot_id"] is not None
+    assert account["bindings"]["codex"]["snapshot_id"] is not None
+    assert account["api_profile"]["provider_name"] == "openai"
+    assert account["label"] == "https://www.ananapi.com"
+
+
+def test_switching_api_account_sets_manual_lock_on_target(tmp_path) -> None:
+    """手动切到 API 账号后，应把目标标记成手动锁定。"""
+
+    settings = build_settings(tmp_path)
+    app = create_app(settings)
+    account = route_endpoint(app, "/api/accounts/import/api-account", "POST")(
+        payload=ApiAccountCreateRequest(
+            base_url="https://www.ananapi.com/",
+            api_key="sk-demo",
+        )
+    )
+
+    route_endpoint(app, "/api/accounts/{account_id}/switch", "POST")(
+        account_id=account["id"],
+        payload=SwitchRequest(target="codex"),
+    )
+    refreshed = route_endpoint(app, "/api/accounts/{account_id}", "GET")(account_id=account["id"])
+
+    assert refreshed["assignment"]["codex"] is True
+    assert refreshed["assignment"]["codex_locked"] is True

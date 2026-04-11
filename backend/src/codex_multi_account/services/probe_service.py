@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import time
+from urllib.parse import urljoin
 import urllib.error
 import urllib.request
 from typing import Any
@@ -11,6 +12,7 @@ from typing import Any
 from codex_multi_account.config import AppSettings
 from codex_multi_account.models.account import AccountRecord
 from codex_multi_account.services.account_pool import AccountPoolService
+from codex_multi_account.utils.api_profiles import normalize_base_url
 
 FIVE_HOUR_WINDOW_SECONDS = 5 * 60 * 60
 WEEKLY_WINDOW_SECONDS = 7 * 24 * 60 * 60
@@ -179,6 +181,35 @@ class ProbeService:
         account.quota.reset_at_five_hour = None
         account.quota.reset_at_weekly = None
 
+    def _probe_api_profile(self, account: AccountRecord) -> dict[str, Any]:
+        """检测第三方 API 账号的连通性。"""
+
+        profile = account.api_profile
+        if profile is None:
+            return {"health": "missing-binding", "reason": "api-profile-missing"}
+        endpoint = urljoin(normalize_base_url(profile.base_url) + "/", "models")
+        request = urllib.request.Request(
+            endpoint,
+            headers={
+                "Authorization": f"Bearer {profile.api_key}",
+                "Accept": "application/json",
+                "User-Agent": "codex-multi-account",
+            },
+            method="GET",
+        )
+        try:
+            with urllib.request.urlopen(request, timeout=10) as response:
+                response.read()
+                status = getattr(response, "status", 200)
+        except urllib.error.HTTPError as exc:
+            body_text = exc.read().decode("utf-8", errors="ignore") if hasattr(exc, "read") else ""
+            return classify_usage_http_error(exc.code, body_text)
+        except Exception as exc:  # pragma: no cover - 网络异常路径不稳定
+            return {"health": "quota-unknown", "reason": f"api-connect-error:{type(exc).__name__}"}
+        if int(status) >= 400:
+            return {"health": "quota-unknown", "reason": f"api-connect-status:{status}"}
+        return {"health": "healthy", "reason": "api-connect-ok"}
+
     def _pick_best_quota_result(self, results: list[dict[str, Any]]) -> dict[str, Any] | None:
         """从多侧绑定的检测结果里选出最可信的一份共享状态。"""
 
@@ -196,6 +227,18 @@ class ProbeService:
         """探测单个账号并更新账号池。"""
 
         account = self.account_pool.require_account(account_id)
+        self._clear_quota(account)
+        if account.kind == "api":
+            if account.status.manual_disabled:
+                account.status.health = "manual-disabled"
+                account.status.reason = "disabled-by-user"
+                account.timestamps.last_detected_at = int(time.time())
+                return self.account_pool.update_account(account)
+            result = self._probe_api_profile(account)
+            account.status.health = str(result.get("health") or "quota-unknown")
+            account.status.reason = str(result.get("reason") or "api-connect-unknown")
+            account.timestamps.last_detected_at = int(time.time())
+            return self.account_pool.update_account(account)
         snapshots = []
         if account.bindings.openclaw.snapshot_id:
             snapshots.append(self.account_pool.openclaw.read_snapshot(account.bindings.openclaw.snapshot_id))
@@ -205,12 +248,10 @@ class ProbeService:
         if not valid_snapshots:
             account.status.health = "missing-binding"
             account.status.reason = "no-snapshot"
-            self._clear_quota(account)
             return self.account_pool.update_account(account)
         if account.status.manual_disabled:
             account.status.health = "manual-disabled"
             account.status.reason = "disabled-by-user"
-            self._clear_quota(account)
             return self.account_pool.update_account(account)
         quota_results = []
         for snapshot in valid_snapshots:

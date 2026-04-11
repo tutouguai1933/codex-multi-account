@@ -39,14 +39,21 @@ class SwitchService:
         if target in {"openclaw", "both"}:
             snapshot_id = self._require_switchable(account, "openclaw")
             self.account_pool.openclaw.activate_snapshot(snapshot_id)
-            self.account_pool.assign_target("openclaw", account_id)
+            self.account_pool.assign_target_with_lock(
+                "openclaw",
+                account_id,
+                manual_lock=account.kind == "api",
+            )
         if target in {"codex", "both"}:
             snapshot_id = self._require_switchable(account, "codex")
             self.account_pool.codex.activate_snapshot(snapshot_id)
-            self.account_pool.assign_target("codex", account_id)
+            self.account_pool.assign_target_with_lock(
+                "codex",
+                account_id,
+                manual_lock=account.kind == "api",
+            )
         return {
             "accountId": account_id,
             "target": target,
             "status": "ok",
         }
-

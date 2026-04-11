@@ -13,7 +13,7 @@
 - `backend/src/codex_multi_account/adapters/openclaw.py`
   - 读写 `~/.openclaw` 下的运行时文件和快照
 - `backend/src/codex_multi_account/adapters/codex_cli.py`
-  - 读写 `~/.codex/auth.json` 和 Codex 快照，并负责把 `cockpit-tools` 导出条目转成可切换的 auth 结构，以及把 `last_refresh` 规整成 CLI 可接受的 RFC 3339 时间字符串
+  - 读写 `~/.codex/auth.json` 和 Codex 快照，并负责把第三方 API 账号写成 `openai_base_url + API Key` 模式，同时把 `last_refresh` 规整成 CLI 可接受的 RFC 3339 时间字符串
 - `backend/src/codex_multi_account/services/account_pool.py`
   - 维护统一账号池，处理单个导入、批量导入/导出、禁用、删除和目标分配
 - `backend/src/codex_multi_account/services/probe_service.py`
@@ -28,6 +28,8 @@
   - 负责后台自动刷新循环、立即执行一次调度、最近状态记录，以及单次失败后的循环保活
 - `backend/src/codex_multi_account/api/`
   - 暴露总览、账号、登录状态、设置、事件、调度状态和手动调度接口；批量刷新额度会以后台任务方式启动
+- `backend/src/codex_multi_account/api/routes_settings.py`
+  - 负责调度设置和 `Codex` 文件编辑接口，支持读取原文、保存原文和快捷字段更新
 - `backend/src/codex_multi_account/api/serializers.py`
   - 负责把账号模型转成前端可展示的安全结构，过滤掉 token 等敏感字段
 - `backend/src/codex_multi_account/app.py`
@@ -42,6 +44,10 @@
   - 管理页面切换、侧边导航和顶栏状态，并接收总览页回传的最新概览数据
 - `web/src/pages/`
   - 展示总览、账号、事件、设置四个页面，其中总览页负责运维面板、运行面板和全局动作，账户页还负责批量导入/导出 JSON
+- `web/src/pages/SettingsPage.tsx`
+  - 负责调度设置和 `Codex` 文件编辑页，页面里同时提供快捷字段和原文编辑
+- `web/src/components/AddAccountPanel.tsx`
+  - 负责账户页的新增入口，第三方 API 账号现在只暴露“基础地址 / API Key”两个输入
 - `web/src/components/AccountCard.tsx`
   - 渲染总览页的账号卡片，集中显示状态、额度、当前分配和图标操作按钮
 - `web/src/lib/api.ts`
@@ -66,6 +72,9 @@
 
 - 后端继续用 Python，是因为现有 OpenClaw 多账号脚本已经在 Python 里跑通
 - `Codex CLI` 不依赖 `~/.codex/accounts`，而是自己维护快照目录
+- `Codex CLI` 的第三方 API 接入固定走内置 `openai` 身份，只改 `openai_base_url`，不再写自定义 provider，避免 `resume` 因 provider 漂移看不到旧会话
+- `Codex` 配置页采用“快捷字段 + 原文编辑”双模式：快捷字段用于高频配置，原文区用于手动精细调整
+- 当前会话如果是从别的项目目录发起，也可以单独迁移 `resume` 元数据到本项目目录，减少项目间的会话干扰
 - 账号池按“一个账号可绑定 OpenClaw、Codex 任意一侧或两侧”设计
 - 自动调度默认优先把 `OpenClaw` 和 `Codex CLI` 分配到不同账号
 - 账号健康状态继续按“一个真实账号一份共享状态”建模，但探测时会尝试两侧绑定，避免被单侧旧快照误伤

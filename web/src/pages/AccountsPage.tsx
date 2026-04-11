@@ -1,16 +1,19 @@
 // 这个页面用于查看账户列表、状态和标签，并支持关键手动操作。
 
 import { useEffect, useState } from "react";
+import { AddAccountPanel } from "../components/AddAccountPanel";
 import { Panel } from "../components/Panel";
 import { StatusBadge } from "../components/StatusBadge";
 import {
   cancelLogin,
+  createApiAccount,
   deleteAccount,
   disableAccount,
   enableAccount,
   exportCodexBatch,
   importCodexBatch,
   importCurrent,
+  importTokenPayload,
   listAccounts,
   listLoginStates,
   probeAccount,
@@ -29,8 +32,12 @@ function resolveHealthTone(state: string): StatusBadgeProps["tone"] {
 }
 
 function formatQuota(value: number | null) {
-  if (value == null) return "unknown";
-  return `${(100 - value).toFixed(1)}% left`;
+  if (value == null) return "未知";
+  return `剩余 ${(100 - value).toFixed(1)}%`;
+}
+
+function formatAccountType(account: AccountRecord) {
+  return account.kind === "api" ? "API" : "OAuth";
 }
 
 function resolveLoginTone(state: LoginSessionState["status"]): StatusBadgeProps["tone"] {
@@ -157,7 +164,7 @@ export function AccountsPage() {
     <div className="page-stack">
       <Panel
         title="登录状态"
-        description="第一版先把登录动作变成页面里可见、可追踪的状态流。"
+        description="查看网页授权登录进度。"
       >
         <div className="toolbar-row">
           <button
@@ -295,6 +302,35 @@ export function AccountsPage() {
       </Panel>
 
       <Panel
+        title="添加账户"
+        description="支持 OAuth、Token 导入和第三方 API Key。"
+      >
+        <AddAccountPanel
+          message={message}
+          onMessage={setMessage}
+          onOAuthLogin={async (target) => {
+            const result = await startLogin(target);
+            setMessage(`已发起 ${target === "openclaw" ? "OpenClaw" : "Codex"} 登录`);
+            await refreshLoginStates();
+            setLoginMessage(result.note);
+          }}
+          onImportCurrent={async (target) => {
+            await runAction(() => importCurrent(target), `已导入当前 ${target === "openclaw" ? "OpenClaw" : "Codex"}`);
+          }}
+          onImportToken={async (value, label) => {
+            const result = await importTokenPayload(value, label);
+            setMessage(`已导入 ${result.importedCount} 个账号`);
+            await refreshAccounts();
+          }}
+          onCreateApiAccount={async (payload) => {
+            const account = await createApiAccount(payload);
+            setMessage(`已添加 API 账号：${account.label}`);
+            await refreshAccounts();
+          }}
+        />
+      </Panel>
+
+      <Panel
         title="批量导入 / 导出"
         description="兼容 cockpit-tools 的 Codex JSON。导入后会同时补齐 Codex 和 OpenClaw 两侧快照。"
       >
@@ -327,57 +363,9 @@ export function AccountsPage() {
 
       <Panel
         title="账户清单"
-        description="这里直接接真实接口，可做导入、检测、切换、禁用和删除。"
+        description="查看账号状态、手动切换和禁用删除。"
       >
-        <div className="toolbar-row">
-          <button
-            type="button"
-            className="action-button"
-            onClick={() => void runAction(() => importCurrent("openclaw"), "已导入当前 OpenClaw")}
-          >
-            导入当前 OpenClaw
-          </button>
-          <button
-            type="button"
-            className="action-button"
-            onClick={() => void runAction(() => importCurrent("codex"), "已导入当前 Codex")}
-          >
-            导入当前 Codex
-          </button>
-          <button
-            type="button"
-            className="action-button"
-            onClick={() =>
-              void runAction(
-                async () => {
-                  const result = await startLogin("openclaw");
-                  await refreshLoginStates();
-                  setLoginMessage(result.note);
-                },
-                "已发起 OpenClaw 登录，请按页面引导完成",
-              )
-            }
-          >
-            开始 OpenClaw 登录
-          </button>
-          <button
-            type="button"
-            className="action-button"
-            onClick={() =>
-              void runAction(
-                async () => {
-                  const result = await startLogin("codex");
-                  await refreshLoginStates();
-                  setLoginMessage(result.note);
-                },
-                "已发起 Codex 登录，请按页面引导完成",
-              )
-            }
-          >
-            开始 Codex 登录
-          </button>
-          <span className="toolbar-note">{message}</span>
-        </div>
+        <div className="toolbar-row"><span className="toolbar-note">{message}</span></div>
         <div className="table-wrap">
           <table className="data-table">
             <thead>
@@ -396,12 +384,29 @@ export function AccountsPage() {
                   <td>
                     <strong>{account.label}</strong>
                     <div className="subtle">{account.id}</div>
-                    <div className="account-email">{account.email ?? "no-email"}</div>
+                    <div className="account-email">
+                      {account.kind === "api"
+                        ? account.api_profile?.base_url ?? "API"
+                        : account.email ?? "无邮箱"}
+                    </div>
+                    <div className="tag-row">
+                      <span className={`mini-tag ${account.kind === "api" ? "mini-tag-api" : "mini-tag-oauth"}`}>
+                        {formatAccountType(account)}
+                      </span>
+                      {account.kind === "api" ? <span className="mini-tag">手动账号</span> : null}
+                    </div>
                   </td>
                   <td>
                     <div className="binding-stack">
-                      <span>OpenClaw: {account.bindings.openclaw.snapshot_id ?? "未绑定"}</span>
-                      <span>Codex: {account.bindings.codex.snapshot_id ?? "未绑定"}</span>
+                      <span>
+                        OpenClaw: {account.bindings.openclaw.available ? "已绑定" : "未绑定"}
+                        {account.assignment.openclaw_locked ? " / 锁定" : ""}
+                      </span>
+                      <span>
+                        Codex: {account.bindings.codex.available ? "已绑定" : "未绑定"}
+                        {account.assignment.codex_locked ? " / 锁定" : ""}
+                      </span>
+                      {account.kind === "api" ? <span>不参与自动调度</span> : null}
                     </div>
                   </td>
                   <td>
@@ -411,16 +416,19 @@ export function AccountsPage() {
                     />
                     <div className="subtle">{account.status.reason}</div>
                   </td>
-                  <td>
+                      <td>
                     <div className="binding-stack">
-                      <span>5h: {formatQuota(account.quota.five_hour_used_pct)}</span>
-                      <span>week: {formatQuota(account.quota.weekly_used_pct)}</span>
+                      <span>5小时: {formatQuota(account.quota.five_hour_used_pct)}</span>
+                      <span>7天: {formatQuota(account.quota.weekly_used_pct)}</span>
                     </div>
                   </td>
                   <td>
                     <div className="tag-row">
                       {account.assignment.openclaw ? <span className="mini-tag">OpenClaw</span> : null}
                       {account.assignment.codex ? <span className="mini-tag">Codex</span> : null}
+                      {account.assignment.openclaw_locked ? <span className="mini-tag">OpenClaw 锁定</span> : null}
+                      {account.assignment.codex_locked ? <span className="mini-tag">Codex 锁定</span> : null}
+                      {account.kind === "api" ? <span className="mini-tag">不自动调度</span> : null}
                       {!account.assignment.openclaw && !account.assignment.codex ? (
                         <span className="mini-tag">未分配</span>
                       ) : null}

@@ -2,6 +2,9 @@
 
 import type {
   AccountRecord,
+  ApiAccountPayload,
+  CodexQuickSettings,
+  CodexRuntimeFiles,
   EventRecord,
   LoginSessionState,
   OverviewResponse,
@@ -75,6 +78,29 @@ export async function saveSettings(
   });
 }
 
+export async function getCodexRuntimeFiles(): Promise<CodexRuntimeFiles> {
+  return requestJson<CodexRuntimeFiles>("/api/settings/codex-runtime");
+}
+
+export async function saveCodexRuntimeFiles(payload: {
+  config_text: string;
+  auth_text: string;
+}): Promise<CodexRuntimeFiles> {
+  return requestJson<CodexRuntimeFiles>("/api/settings/codex-runtime", {
+    method: "PUT",
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function saveCodexQuickSettings(
+  payload: Partial<CodexQuickSettings>,
+): Promise<CodexRuntimeFiles> {
+  return requestJson<CodexRuntimeFiles>("/api/settings/codex-runtime/quick", {
+    method: "PUT",
+    body: JSON.stringify(payload),
+  });
+}
+
 export async function importCurrent(target: "openclaw" | "codex", label?: string) {
   return requestJson<AccountRecord>(`/api/accounts/import/${target}-current`, {
     method: "POST",
@@ -90,6 +116,23 @@ export async function importCodexBatch(items: Array<Record<string, unknown>>) {
       body: JSON.stringify({ items }),
     },
   );
+}
+
+export async function importTokenPayload(value: string, label?: string) {
+  return requestJson<{ importedCount: number; accounts: AccountRecord[] }>(
+    "/api/accounts/import/token",
+    {
+      method: "POST",
+      body: JSON.stringify({ value, label }),
+    },
+  );
+}
+
+export async function createApiAccount(payload: ApiAccountPayload) {
+  return requestJson<AccountRecord>("/api/accounts/import/api-account", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
 }
 
 export async function exportCodexBatch() {

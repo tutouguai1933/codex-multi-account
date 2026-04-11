@@ -898,6 +898,17 @@ p {
   padding: 8px 12px;
 }
 
+.action-button-primary {
+  background: linear-gradient(180deg, rgba(39, 93, 240, 0.96), rgba(26, 72, 203, 0.96));
+  border-color: rgba(39, 93, 240, 0.26);
+  color: #f8fbff;
+  box-shadow: 0 12px 24px rgba(39, 93, 240, 0.18);
+}
+
+.action-button-primary:hover {
+  background: linear-gradient(180deg, rgba(58, 108, 247, 0.98), rgba(34, 82, 221, 0.98));
+}
+
 .action-button-danger {
   border-color: rgba(209, 107, 107, 0.24);
   background: rgba(209, 107, 107, 0.12);
@@ -973,6 +984,150 @@ p {
   padding: 18px;
   display: grid;
   gap: 6px;
+}
+
+.add-account-panel {
+  display: grid;
+  gap: 16px;
+}
+
+.panel-switcher {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.panel-switcher-item {
+  border: 1px solid rgba(39, 93, 240, 0.16);
+  background: rgba(255, 255, 255, 0.8);
+  color: var(--text-soft);
+  border-radius: 999px;
+  padding: 10px 16px;
+}
+
+.panel-switcher-item.is-active {
+  color: #1844b0;
+  background: rgba(39, 93, 240, 0.12);
+  border-color: rgba(39, 93, 240, 0.3);
+}
+
+.add-account-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.add-account-span-2 {
+  grid-column: 1 / -1;
+}
+
+.add-account-card {
+  border: 1px solid rgba(191, 203, 219, 0.6);
+  border-radius: 18px;
+  padding: 16px;
+  display: grid;
+  gap: 12px;
+  background: rgba(255, 255, 255, 0.7);
+}
+
+.form-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.codex-quick-grid {
+  margin-bottom: 14px;
+}
+
+.codex-toggle-row {
+  gap: 16px;
+}
+
+.codex-toggle-copy {
+  display: grid;
+  gap: 6px;
+}
+
+.codex-toggle-row input {
+  width: auto;
+  min-width: 18px;
+  min-height: 18px;
+}
+
+.codex-editor-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.form-field {
+  display: grid;
+  gap: 6px;
+  color: var(--text-soft);
+  font-size: 0.86rem;
+}
+
+.form-field span {
+  color: var(--text-dim);
+  font-family: var(--mono);
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+}
+
+.form-field input,
+.codex-editor-grid textarea,
+.advanced-block textarea,
+.advanced-block input,
+.add-account-card textarea,
+.add-account-card input {
+  width: 100%;
+}
+
+.codex-editor-grid textarea {
+  min-height: 320px;
+  resize: vertical;
+  font-family: var(--mono);
+  line-height: 1.5;
+}
+
+.form-field-wide {
+  grid-column: 1 / -1;
+}
+
+.advanced-block {
+  border: 1px solid rgba(191, 203, 219, 0.5);
+  border-radius: 16px;
+  padding: 12px;
+  background: rgba(247, 250, 255, 0.76);
+}
+
+.advanced-block summary {
+  cursor: pointer;
+  color: #264097;
+  font-weight: 700;
+  margin-bottom: 12px;
+}
+
+.advanced-block .form-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.add-account-note-row {
+  justify-content: flex-end;
+}
+
+.mini-tag-api {
+  color: #1f4db7;
+  background: rgba(39, 93, 240, 0.12);
+  border-color: rgba(39, 93, 240, 0.2);
+}
+
+.mini-tag-oauth {
+  color: #3f6f42;
+  background: rgba(39, 179, 107, 0.12);
+  border-color: rgba(39, 179, 107, 0.2);
 }
 
 .account-wall {

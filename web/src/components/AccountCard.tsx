@@ -71,6 +71,9 @@ function formatResetCountdown(resetAt: number | null): string {
 }
 
 function resolvePlanLabel(account: AccountRecord): string {
+  if (account.kind === "api") {
+    return "API";
+  }
   const planType =
     getNestedString(account.metadata, ["identity", "plan_type"]) ??
     getNestedString(account.metadata, ["codex_export", "plan_type"]);
@@ -81,6 +84,9 @@ function resolvePlanLabel(account: AccountRecord): string {
 }
 
 function resolveAuthLabel(account: AccountRecord): string {
+  if (account.kind === "api") {
+    return "manual";
+  }
   const authMode =
     getNestedString(account.metadata, ["identity", "auth_mode"]) ??
     getNestedString(account.metadata, ["codex_export", "auth_mode"]);
@@ -117,6 +123,9 @@ function isActivelyAssigned(account: AccountRecord): boolean {
 }
 
 function resolveAccountName(account: AccountRecord): string {
+  if (account.kind === "api") {
+    return account.api_profile?.base_url ?? account.label;
+  }
   return (
     getNestedString(account.metadata, ["codex_export", "account_name"]) ??
     getNestedString(account.metadata, ["identity", "account_id"]) ??
@@ -269,8 +278,34 @@ export function AccountCard({
       <div className="account-status-row">
         <StatusBadge label={account.status.health} tone={resolveHealthTone(account.status.health)} />
         <StatusBadge label={resolveAssignmentLabel(account)} tone={resolveAssignmentTone(account)} />
+        {account.kind === "api" ? <StatusBadge label="不自动调度" tone="warning" /> : null}
+        {account.assignment.openclaw_locked ? <StatusBadge label="OpenClaw 锁定" tone="warning" /> : null}
+        {account.assignment.codex_locked ? <StatusBadge label="Codex 锁定" tone="warning" /> : null}
       </div>
 
+      {account.kind === "api" ? (
+        <div className="quota-stack">
+          <div className="quota-group">
+            <div className="quota-head">
+              <span className="quota-label">Provider</span>
+              <strong className="quota-value quota-value-neutral">
+                {account.api_profile?.provider_name ?? "OpenAI"}
+              </strong>
+            </div>
+            <div className="quota-foot">{account.api_profile?.base_url ?? "未配置基础地址"}</div>
+          </div>
+
+          <div className="quota-group">
+            <div className="quota-head">
+              <span className="quota-label">Model</span>
+              <strong className="quota-value quota-value-neutral">
+                {account.api_profile?.model ?? "未配置"}
+              </strong>
+            </div>
+            <div className="quota-foot">仅手动切换，不参与自动调度</div>
+          </div>
+        </div>
+      ) : (
       <div className="quota-stack">
         <div className="quota-group">
           <div className="quota-head">
@@ -308,6 +343,7 @@ export function AccountCard({
           <div className="quota-foot">{formatResetCountdown(account.quota.reset_at_weekly)}</div>
         </div>
       </div>
+      )}
 
       <div className="account-card-footer">
         <div className="account-card-timestamp">更新 {formatTime(lastUpdated)}</div>

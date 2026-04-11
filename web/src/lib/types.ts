@@ -17,8 +17,25 @@ export interface TargetBinding {
 export interface AccountRecord {
   id: string;
   label: string;
+  kind: "oauth" | "api" | string;
   email: string | null;
   tags: string[];
+  api_profile?: {
+    provider_name: string;
+    base_url: string;
+    wire_api: string;
+    requires_openai_auth: boolean;
+    model: string;
+    review_model: string | null;
+    model_reasoning_effort: string | null;
+    disable_response_storage: boolean;
+    network_access: string;
+    windows_wsl_setup_acknowledged: boolean;
+    model_context_window: number | null;
+    model_auto_compact_token_limit: number | null;
+    fingerprint: string | null;
+    has_api_key: boolean;
+  } | null;
   bindings: {
     openclaw: TargetBinding;
     codex: TargetBinding;
@@ -37,6 +54,8 @@ export interface AccountRecord {
   assignment: {
     openclaw: boolean;
     codex: boolean;
+    openclaw_locked: boolean;
+    codex_locked: boolean;
   };
   timestamps: {
     last_detected_at: number | null;
@@ -92,8 +111,29 @@ export interface SchedulerSettings {
   };
 }
 
+export interface CodexQuickSettings {
+  openai_base_url: string | null;
+  model: string | null;
+  review_model: string | null;
+  model_reasoning_effort: string | null;
+  fast_mode_enabled: boolean | null;
+  model_context_window: number | null;
+  model_auto_compact_token_limit: number | null;
+}
+
+export interface CodexRuntimeFiles {
+  config_text: string;
+  auth_text: string;
+  quick_settings: CodexQuickSettings;
+}
+
 export interface SwitchPayload {
   target: "openclaw" | "codex" | "both";
+}
+
+export interface ApiAccountPayload {
+  base_url: string;
+  api_key: string;
 }
 
 export interface LoginSessionState {
